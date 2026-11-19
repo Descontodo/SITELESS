@@ -1,0 +1,2 @@
+# Install after requirements.txt to create the local desktop executable.
+pyinstaller>=6.0,<7

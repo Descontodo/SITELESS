@@ -1,0 +1,98 @@
+name: Build Siteless desktop packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            label: Windows-x64
+          - runner: ubuntu-22.04
+            label: Linux-x64
+          - runner: macos-15-intel
+            label: macOS-Intel
+          - runner: macos-latest
+            label: macOS-Apple-Silicon
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install application and packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Build executable folder
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onedir --console
+          --name Siteless --distpath dist --workpath work/pyinstaller
+          --specpath work/pyinstaller
+          --collect-all ddgs
+          --hidden-import uvicorn.logging
+          --hidden-import uvicorn.loops.asyncio
+          --hidden-import uvicorn.protocols.http.h11_impl
+          --hidden-import uvicorn.lifespan.on
+          desktop.py
+
+      - name: Add Linux launcher and instructions
+        if: runner.os == 'Linux'
+        run: |
+          cat > dist/Siteless/iniciar-siteless.sh <<'EOF'
+          #!/usr/bin/env bash
+          cd "$(dirname "$0")"
+          exec ./Siteless
+          EOF
+          chmod +x dist/Siteless/iniciar-siteless.sh
+          cp README-DESKTOP.txt dist/Siteless/LEIA-ME.txt
+
+      - name: Add macOS launcher and instructions
+        if: runner.os == 'macOS'
+        run: |
+          cat > dist/Siteless/Iniciar-Siteless.command <<'EOF'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+          exec ./Siteless
+          EOF
+          chmod +x dist/Siteless/Iniciar-Siteless.command
+          cp README-DESKTOP.txt dist/Siteless/LEIA-ME.txt
+
+      - name: Add Windows instructions
+        if: runner.os == 'Windows'
+        run: Copy-Item README-DESKTOP.txt dist/Siteless/LEIA-ME.txt
+
+      - name: Archive Windows package
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/Siteless -DestinationPath dist/Siteless-${{ matrix.label }}.zip
+
+      - name: Archive Linux package
+        if: runner.os == 'Linux'
+        run: cd dist && zip -qr Siteless-${{ matrix.label }}.zip Siteless
+
+      - name: Archive macOS package
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Siteless dist/Siteless-${{ matrix.label }}.zip
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Siteless-${{ matrix.label }}
+          path: dist/Siteless-${{ matrix.label }}.zip
+          if-no-files-found: error
+          retention-days: 14
